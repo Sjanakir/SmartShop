@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>13F Thematic Aggregator</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#eef2ff', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca', 900:'#1e1b4b' },
+            surface: { dark: '#0f0f17', card: '#16161f', border: '#2a2a3a' }
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    body { background: #0f0f17; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+    .glass { background: rgba(22,22,31,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); }
+    .badge-new       { background:#14532d; color:#86efac; }
+    .badge-increased { background:#1e3a5f; color:#93c5fd; }
+    .badge-decreased { background:#4a1942; color:#f0abfc; }
+    .badge-sold      { background:#450a0a; color:#fca5a5; }
+    .badge           { font-size:.65rem; padding:2px 8px; border-radius:9999px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
+    .conviction-bar  { height:6px; border-radius:3px; background:#2a2a3a; overflow:hidden; }
+    .conviction-fill { height:100%; border-radius:3px; transition:width .5s ease; }
+    .tab-active      { background: rgba(99,102,241,0.15); border-bottom:2px solid #6366f1; color:#a5b4fc; }
+    .tab             { border-bottom:2px solid transparent; color:#64748b; transition:all .2s; cursor:pointer; }
+    .tab:hover       { color:#94a3b8; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:#16161f; }
+    ::-webkit-scrollbar-thumb { background:#2a2a3a; border-radius:3px; }
+    .spinner { animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .fade-in { animation:fadeIn .4s ease; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .pulse-dot { animation:pulseDot 2s infinite; }
+    @keyframes pulseDot { 0%,100%{opacity:1} 50%{opacity:.3} }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     NAV
+═══════════════════════════════════════════════════════════════════════════ -->
+<nav class="glass sticky top-0 z-50 flex items-center justify-between px-6 py-3 border-b border-surface-border">
+  <div class="flex items-center gap-3">
+    <!-- Logo -->
+    <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    </div>
+    <span class="font-semibold text-white text-sm tracking-wide">13F Thematic Aggregator</span>
+  </div>
+
+  <div class="flex items-center gap-4">
+    <span id="period-badge" class="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-full hidden">
+      Q: <span id="period-text">—</span>
+    </span>
+    <button id="sync-btn" onclick="triggerSync()"
+      class="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors">
+      <svg id="sync-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/>
+        <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+      </svg>
+      Sync SEC Data
+    </button>
+    <span id="sync-status-dot" class="hidden w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MAIN
+═══════════════════════════════════════════════════════════════════════════ -->
+<main class="max-w-7xl mx-auto px-4 py-8">
+
+  <!-- Tabs -->
+  <div class="flex gap-1 border-b border-surface-border mb-8">
+    <button class="tab tab-active px-5 py-3 text-sm font-medium" onclick="switchTab('dashboard', this)">Dashboard</button>
+    <button class="tab px-5 py-3 text-sm font-medium" onclick="switchTab('funds', this)">Fund Explorer</button>
+    <button class="tab px-5 py-3 text-sm font-medium" onclick="switchTab('themes', this)">Theme Explorer</button>
+  </div>
+
+  <!-- ───────── DASHBOARD TAB ───────── -->
+  <div id="tab-dashboard" class="tab-content fade-in">
+
+    <!-- KPI row -->
+    <div id="kpi-row" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
+
+    <!-- Charts row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <div class="glass rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-slate-300 mb-4">Sector Conviction Scores</h3>
+        <div style="height:280px"><canvas id="convictionChart"></canvas></div>
+      </div>
+      <div class="glass rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-slate-300 mb-4">Buying vs Selling by Sector</h3>
+        <div style="height:280px"><canvas id="buyingChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Top buys table -->
+    <div class="glass rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-slate-300">Highest Conviction Buys Across All Funds</h3>
+        <span class="text-xs text-slate-500">ranked by fund count</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" id="top-buys-table">
+          <thead>
+            <tr class="text-left text-xs text-slate-500 border-b border-surface-border">
+              <th class="pb-2 pr-4">Ticker / Issuer</th>
+              <th class="pb-2 pr-4">Sector</th>
+              <th class="pb-2 pr-4 text-right">Funds Buying</th>
+              <th class="pb-2 text-right">Total Value Δ ($K)</th>
+            </tr>
+          </thead>
+          <tbody id="top-buys-body">
+            <tr><td colspan="4" class="py-6 text-center text-slate-500">Loading …</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── FUND EXPLORER TAB ───────── -->
+  <div id="tab-funds" class="tab-content hidden fade-in">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Fund list -->
+      <div class="glass rounded-xl p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-3">Tracked Funds</h3>
+        <div id="fund-list" class="space-y-1.5">
+          <div class="text-slate-500 text-sm py-4 text-center">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Fund detail -->
+      <div class="lg:col-span-2 space-y-5">
+        <div id="fund-detail" class="glass rounded-xl p-5 hidden">
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <h2 id="fund-name" class="text-base font-semibold text-white"></h2>
+              <p id="fund-meta" class="text-xs text-slate-400 mt-0.5"></p>
+            </div>
+            <div id="fund-value" class="text-right">
+              <div class="text-lg font-bold text-brand-400"></div>
+              <div class="text-xs text-slate-500">Portfolio Value</div>
+            </div>
+          </div>
+
+          <!-- Sector donut -->
+          <div class="mb-5" style="height:180px">
+            <canvas id="fundSectorChart"></canvas>
+          </div>
+
+          <!-- Changes filter -->
+          <div class="flex gap-2 mb-3">
+            <button class="action-filter tab tab-active px-3 py-1 text-xs rounded-lg" data-action="all" onclick="filterChanges('all', this)">All</button>
+            <button class="action-filter tab px-3 py-1 text-xs rounded-lg" data-action="NEW" onclick="filterChanges('NEW', this)">New</button>
+            <button class="action-filter tab px-3 py-1 text-xs rounded-lg" data-action="INCREASED" onclick="filterChanges('INCREASED', this)">Increased</button>
+            <button class="action-filter tab px-3 py-1 text-xs rounded-lg" data-action="DECREASED" onclick="filterChanges('DECREASED', this)">Decreased</button>
+            <button class="action-filter tab px-3 py-1 text-xs rounded-lg" data-action="SOLD_OUT" onclick="filterChanges('SOLD_OUT', this)">Sold</button>
+          </div>
+
+          <div class="overflow-x-auto max-h-96 overflow-y-auto">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 bg-surface-card">
+                <tr class="text-left text-xs text-slate-500 border-b border-surface-border">
+                  <th class="pb-2 pr-3">Ticker</th>
+                  <th class="pb-2 pr-3">Action</th>
+                  <th class="pb-2 pr-3">Sector</th>
+                  <th class="pb-2 pr-3 text-right">Prev Shares</th>
+                  <th class="pb-2 pr-3 text-right">Curr Shares</th>
+                  <th class="pb-2 text-right">Value Δ ($K)</th>
+                </tr>
+              </thead>
+              <tbody id="fund-changes-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="fund-placeholder" class="glass rounded-xl p-10 text-center text-slate-500 text-sm">
+          Select a fund from the list
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── THEME EXPLORER TAB ───────── -->
+  <div id="tab-themes" class="tab-content hidden fade-in">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Sector list -->
+      <div class="glass rounded-xl p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-3">Sectors by Conviction</h3>
+        <div id="sector-list" class="space-y-3">
+          <div class="text-slate-500 text-sm py-4 text-center">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Sector detail -->
+      <div class="lg:col-span-2">
+        <div id="sector-detail" class="glass rounded-xl p-5 hidden">
+          <div class="flex items-start justify-between mb-5">
+            <div>
+              <h2 id="sector-name" class="text-base font-semibold text-white"></h2>
+              <p id="sector-meta" class="text-xs text-slate-400 mt-0.5"></p>
+            </div>
+            <div id="sector-conviction-badge" class="text-right"></div>
+          </div>
+          <div class="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 bg-surface-card">
+                <tr class="text-left text-xs text-slate-500 border-b border-surface-border">
+                  <th class="pb-2 pr-4">Ticker / Issuer</th>
+                  <th class="pb-2 pr-4 text-center">Funds Buying</th>
+                  <th class="pb-2 pr-4 text-center">Funds Selling</th>
+                  <th class="pb-2 text-right">Value Δ ($K)</th>
+                </tr>
+              </thead>
+              <tbody id="sector-stocks-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="sector-placeholder" class="glass rounded-xl p-10 text-center text-slate-500 text-sm">
+          Select a sector from the list
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TOAST
+═══════════════════════════════════════════════════════════════════════════ -->
+<div id="toast" class="fixed bottom-6 right-6 glass rounded-xl px-5 py-3 text-sm text-white z-50 hidden transition-all"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SCRIPTS
+═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const API = '';   // same origin
+let dashData   = null;
+let fundChanges = [];
+let convChart  = null;
+let buyChart   = null;
+let fundSectChart = null;
+let syncPoll   = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadDashboard();
+  loadFundList();
+  checkSyncStatus();
+});
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('[onclick^="switchTab"]').forEach(el => {
+    el.classList.remove('tab-active'); el.classList.add('tab');
+  });
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  btn.classList.add('tab-active');
+  if (name === 'themes' && !dashData) loadDashboard().then(loadSectorList);
+  if (name === 'themes' && dashData) loadSectorList();
+}
+
+// ── API fetch helper ──────────────────────────────────────────────────────────
+async function api(path) {
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    dashData = await api('/api/dashboard');
+    renderKPIs();
+    renderTopBuys();
+    renderConvictionChart();
+    renderBuyingChart();
+    // Update period badge
+    if (dashData.period) {
+      document.getElementById('period-text').textContent = dashData.period;
+      document.getElementById('period-badge').classList.remove('hidden');
+    }
+  } catch(e) {
+    showToast('Could not load dashboard: ' + e.message, 'error');
+  }
+}
+
+function renderKPIs() {
+  const { themes, top_buys, funds } = dashData;
+  const topTheme = themes[0] || {};
+  const totalFunds = funds.length;
+  const totalBuying = themes.reduce((s,t) => s + t.funds_buying, 0);
+  const netDelta = themes.reduce((s,t) => s + (t.total_value_chg||0), 0);
+
+  const kpis = [
+    { label:'Tracked Funds', value: totalFunds, sub:'institutional investors' },
+    { label:'Top Theme', value: topTheme.sector || '—', sub:`conviction ${((topTheme.conviction_score||0)*100).toFixed(0)}%` },
+    { label:'Buy Actions', value: totalBuying, sub:'across all sectors' },
+    { label:'Net Value Δ', value: fmtVal(netDelta), sub:'USD thousands' },
+  ];
+
+  document.getElementById('kpi-row').innerHTML = kpis.map(k => `
+    <div class="glass rounded-xl p-5">
+      <div class="text-xs text-slate-500 mb-1">${k.label}</div>
+      <div class="text-2xl font-bold text-white mb-0.5">${k.value}</div>
+      <div class="text-xs text-slate-500">${k.sub}</div>
+    </div>
+  `).join('');
+}
+
+function renderTopBuys() {
+  const tbody = document.getElementById('top-buys-body');
+  const buys  = dashData.top_buys || [];
+  if (!buys.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-500">No data — run a sync first</td></tr>';
+    return;
+  }
+  tbody.innerHTML = buys.map((b, i) => `
+    <tr class="border-b border-surface-border hover:bg-white/3 transition-colors">
+      <td class="py-2.5 pr-4">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-mono text-slate-400 w-5">${i+1}</span>
+          <div>
+            <div class="font-medium text-white">${esc(b.ticker || b.issuer_name)}</div>
+            <div class="text-xs text-slate-500">${esc(b.issuer_name || '')}</div>
+          </div>
+        </div>
+      </td>
+      <td class="py-2.5 pr-4"><span class="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">${esc(b.sector)}</span></td>
+      <td class="py-2.5 pr-4 text-right">
+        <span class="font-semibold text-brand-400">${b.fund_count}</span>
+        <span class="text-xs text-slate-500 ml-1">fund${b.fund_count > 1 ? 's' : ''}</span>
+      </td>
+      <td class="py-2.5 text-right ${b.total_value_chg >= 0 ? 'text-emerald-400' : 'text-rose-400'} font-mono text-xs">
+        ${b.total_value_chg >= 0 ? '+' : ''}${fmtVal(b.total_value_chg)}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderConvictionChart() {
+  const themes = (dashData.themes || []).slice(0, 12);
+  const labels = themes.map(t => t.sector);
+  const scores = themes.map(t => +(t.conviction_score * 100).toFixed(1));
+  const colors = scores.map(s => s >= 0 ? 'rgba(99,102,241,0.8)' : 'rgba(244,63,94,0.7)');
+
+  if (convChart) convChart.destroy();
+  const ctx = document.getElementById('convictionChart').getContext('2d');
+  convChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ data: scores, backgroundColor: colors, borderRadius: 4, borderSkipped: false }] },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.raw}%` } } },
+      scales: {
+        x: { grid: { color:'rgba(255,255,255,0.05)' }, ticks: { color:'#64748b', font:{size:10} }, title:{ display:true, text:'Conviction %', color:'#64748b', font:{size:10} } },
+        y: { grid: { display: false }, ticks: { color:'#94a3b8', font:{size:10} } }
+      }
+    }
+  });
+}
+
+function renderBuyingChart() {
+  const themes = (dashData.themes || []).slice(0, 10);
+  const labels  = themes.map(t => t.sector);
+  const buying  = themes.map(t => t.funds_buying);
+  const selling = themes.map(t => t.funds_selling);
+
+  if (buyChart) buyChart.destroy();
+  const ctx = document.getElementById('buyingChart').getContext('2d');
+  buyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Buying',  data: buying,  backgroundColor:'rgba(99,102,241,0.75)', borderRadius:3 },
+        { label:'Selling', data: selling, backgroundColor:'rgba(244,63,94,0.65)',   borderRadius:3 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color:'#94a3b8', font:{size:10} } } },
+      scales: {
+        x: { grid:{display:false}, ticks:{color:'#64748b', font:{size:9}, maxRotation:35} },
+        y: { grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#64748b', font:{size:10}}, title:{display:true, text:'# Funds', color:'#64748b', font:{size:10}} }
+      }
+    }
+  });
+}
+
+// ── Fund Explorer ─────────────────────────────────────────────────────────────
+async function loadFundList() {
+  try {
+    const funds = await api('/api/funds');
+    const el = document.getElementById('fund-list');
+    if (!funds.length) {
+      el.innerHTML = '<div class="text-slate-500 text-sm text-center py-4">No funds — run a sync</div>';
+      return;
+    }
+    el.innerHTML = funds.map(f => `
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group"
+        onclick="selectFund(${f.id}, '${esc(f.name)}', this)">
+        <div class="text-sm font-medium text-slate-200 group-hover:text-white">${esc(f.name)}</div>
+        <div class="text-xs text-slate-500 mt-0.5">${f.latest_period || 'no data'} · ${fmtVal(f.total_value)} K</div>
+      </button>
+    `).join('');
+  } catch(e) { console.error(e); }
+}
+
+let activeFundBtn = null;
+async function selectFund(id, name, btn) {
+  if (activeFundBtn) activeFundBtn.classList.remove('bg-brand-900/40', 'border', 'border-brand-700/40');
+  btn.classList.add('bg-brand-900/40', 'border', 'border-brand-700/40');
+  activeFundBtn = btn;
+
+  document.getElementById('fund-placeholder').classList.add('hidden');
+  document.getElementById('fund-detail').classList.remove('hidden');
+  document.getElementById('fund-name').textContent = name;
+  document.getElementById('fund-changes-body').innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">Loading…</td></tr>';
+
+  try {
+    const [detail, changes] = await Promise.all([
+      api('/api/funds/' + id),
+      api('/api/funds/' + id + '/changes'),
+    ]);
+
+    const latest = detail.filings[0] || {};
+    document.getElementById('fund-meta').textContent =
+      `CIK ${detail.cik} · ${detail.filings.length} filing(s) · Latest: ${latest.period_of_report || '—'}`;
+    document.getElementById('fund-value').querySelector('div').textContent =
+      fmtVal(latest.total_value) + ' K';
+
+    // Sector donut
+    renderFundSectorChart(latest.sector_breakdown || []);
+
+    fundChanges = changes;
+    renderFundChanges('all');
+
+  } catch(e) {
+    showToast('Error loading fund: ' + e.message, 'error');
+  }
+}
+
+function renderFundSectorChart(breakdown) {
+  const top = breakdown.slice(0, 8);
+  const labels = top.map(b => b.sector);
+  const values = top.map(b => b.value);
+  const palette = ['#6366f1','#8b5cf6','#ec4899','#f43f5e','#f97316','#eab308','#22c55e','#14b8a6'];
+
+  if (fundSectChart) fundSectChart.destroy();
+  const ctx = document.getElementById('fundSectorChart').getContext('2d');
+  fundSectChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: palette, borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position:'right', labels: { color:'#94a3b8', font:{size:10}, boxWidth:10, padding:8 } },
+        tooltip: { callbacks: { label: c => ` $${fmtVal(c.raw)}K` } }
+      },
+      cutout: '65%'
+    }
+  });
+}
+
+function renderFundChanges(filter) {
+  const rows = filter === 'all' ? fundChanges : fundChanges.filter(c => c.action === filter);
+  const tbody = document.getElementById('fund-changes-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">No changes for this filter</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr class="border-b border-surface-border/50 hover:bg-white/3 transition-colors">
+      <td class="py-2 pr-3">
+        <div class="font-medium text-white text-xs">${esc(c.ticker || c.issuer_name)}</div>
+        <div class="text-xs text-slate-500">${esc(c.sector)}</div>
+      </td>
+      <td class="py-2 pr-3"><span class="badge ${badgeClass(c.action)}">${actionLabel(c.action)}</span></td>
+      <td class="py-2 pr-3 text-xs text-slate-400">${esc(c.sector)}</td>
+      <td class="py-2 pr-3 text-right font-mono text-xs text-slate-400">${fmtShares(c.prev_shares)}</td>
+      <td class="py-2 pr-3 text-right font-mono text-xs text-slate-200">${fmtShares(c.curr_shares)}</td>
+      <td class="py-2 text-right font-mono text-xs ${c.value_chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
+        ${c.value_chg >= 0 ? '+' : ''}${fmtVal(c.value_chg)}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function filterChanges(action, btn) {
+  document.querySelectorAll('.action-filter').forEach(el => {
+    el.classList.remove('tab-active'); el.classList.add('tab');
+  });
+  btn.classList.add('tab-active');
+  renderFundChanges(action);
+}
+
+// ── Theme Explorer ────────────────────────────────────────────────────────────
+async function loadSectorList() {
+  const el = document.getElementById('sector-list');
+  if (!dashData) { el.innerHTML = '<div class="text-slate-500 text-sm text-center py-4">Run sync first</div>'; return; }
+
+  const themes = dashData.themes || [];
+  el.innerHTML = themes.map(t => `
+    <div class="cursor-pointer hover:bg-white/5 rounded-lg px-3 py-2.5 transition-colors"
+      onclick="selectSector('${esc(t.sector)}', this)">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-medium text-slate-200">${esc(t.sector)}</span>
+        <span class="text-xs font-bold ${t.conviction_score >= 0 ? 'text-brand-400' : 'text-rose-400'}">
+          ${t.conviction_score >= 0 ? '+' : ''}${(t.conviction_score*100).toFixed(0)}%
+        </span>
+      </div>
+      <div class="conviction-bar">
+        <div class="conviction-fill ${t.conviction_score >= 0 ? 'bg-brand-500' : 'bg-rose-500'}"
+          style="width:${Math.abs(t.conviction_score)*100}%"></div>
+      </div>
+      <div class="flex justify-between mt-1">
+        <span class="text-xs text-emerald-500">${t.funds_buying} buying</span>
+        <span class="text-xs text-rose-500">${t.funds_selling} selling</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+let activeSectorEl = null;
+async function selectSector(sector, el) {
+  if (activeSectorEl) activeSectorEl.classList.remove('bg-brand-900/30', 'border', 'border-brand-700/30');
+  el.classList.add('bg-brand-900/30', 'border', 'border-brand-700/30');
+  activeSectorEl = el;
+
+  document.getElementById('sector-placeholder').classList.add('hidden');
+  document.getElementById('sector-detail').classList.remove('hidden');
+  document.getElementById('sector-name').textContent = sector;
+  document.getElementById('sector-stocks-body').innerHTML =
+    '<tr><td colspan="4" class="py-6 text-center text-slate-500">Loading…</td></tr>';
+
+  try {
+    const data = await api('/api/themes/' + encodeURIComponent(sector));
+    const snap = (dashData.themes || []).find(t => t.sector === sector) || {};
+
+    document.getElementById('sector-meta').textContent =
+      `Period: ${data.period || '—'} · ${data.stocks.length} securities`;
+
+    const score = snap.conviction_score || 0;
+    document.getElementById('sector-conviction-badge').innerHTML = `
+      <div class="text-lg font-bold ${score >= 0 ? 'text-brand-400' : 'text-rose-400'}">${score >= 0 ? '+' : ''}${(score*100).toFixed(0)}%</div>
+      <div class="text-xs text-slate-500">conviction</div>
+    `;
+
+    const tbody = document.getElementById('sector-stocks-body');
+    if (!data.stocks.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-500">No data</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.stocks.map(s => `
+      <tr class="border-b border-surface-border/50 hover:bg-white/3 transition-colors">
+        <td class="py-2.5 pr-4">
+          <div class="font-medium text-white text-sm">${esc(s.ticker || s.issuer_name)}</div>
+          <div class="text-xs text-slate-500">${esc(s.issuer_name || '')}</div>
+        </td>
+        <td class="py-2.5 pr-4 text-center">
+          <div class="inline-flex items-center gap-1 text-emerald-400 font-semibold text-sm">${s.funds_buying}</div>
+          <div class="text-xs text-slate-500">${s.funds_buying === 1 ? 'fund' : 'funds'}</div>
+        </td>
+        <td class="py-2.5 pr-4 text-center">
+          <div class="text-rose-400 font-semibold text-sm">${s.funds_selling}</div>
+          <div class="text-xs text-slate-500">${s.funds_selling === 1 ? 'fund' : 'funds'}</div>
+        </td>
+        <td class="py-2.5 text-right font-mono text-xs ${s.total_value_chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
+          ${s.total_value_chg >= 0 ? '+' : ''}${fmtVal(s.total_value_chg)}
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    showToast('Error loading sector: ' + e.message, 'error');
+  }
+}
+
+// ── Sync ──────────────────────────────────────────────────────────────────────
+async function triggerSync() {
+  try {
+    const r = await fetch(API + '/api/sync', { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'already_running') { showToast('Sync already in progress …', 'warn'); return; }
+    showToast('SEC data sync started — this may take a few minutes', 'info');
+    startSyncPolling();
+  } catch(e) { showToast('Sync failed: ' + e.message, 'error'); }
+}
+
+function startSyncPolling() {
+  document.getElementById('sync-status-dot').classList.remove('hidden');
+  if (syncPoll) clearInterval(syncPoll);
+  syncPoll = setInterval(checkSyncStatus, 5000);
+}
+
+async function checkSyncStatus() {
+  try {
+    const s = await api('/api/sync/status');
+    if (s.running) {
+      document.getElementById('sync-status-dot').classList.remove('hidden');
+    } else {
+      document.getElementById('sync-status-dot').classList.add('hidden');
+      if (syncPoll) { clearInterval(syncPoll); syncPoll = null; }
+      if (s.last_result) {
+        showToast('Sync complete! Reloading data…', 'success');
+        s.last_result = null;
+        await loadDashboard();
+        await loadFundList();
+      }
+    }
+  } catch(e) { console.error('Status check failed', e); }
+}
+
+// ── Formatting helpers ────────────────────────────────────────────────────────
+function fmtVal(v) {
+  if (v == null || isNaN(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return (v/1e9).toFixed(1) + 'B';
+  if (abs >= 1e6) return (v/1e6).toFixed(1) + 'M';
+  if (abs >= 1e3) return (v/1e3).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+
+function fmtShares(v) {
+  if (!v) return '—';
+  if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v/1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return (v/1e3).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function badgeClass(action) {
+  return { NEW:'badge-new', INCREASED:'badge-increased', DECREASED:'badge-decreased', SOLD_OUT:'badge-sold' }[action] || '';
+}
+
+function actionLabel(action) {
+  return { NEW:'New', INCREASED:'↑ Incr', DECREASED:'↓ Decr', SOLD_OUT:'Sold Out' }[action] || action;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  const colors = { success:'border-l-4 border-emerald-500', error:'border-l-4 border-rose-500',
+                   warn:'border-l-4 border-amber-500', info:'border-l-4 border-brand-500' };
+  el.className = `fixed bottom-6 right-6 glass rounded-xl px-5 py-3 text-sm text-white z-50 ${colors[type]}`;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 5000);
+}
+</script>
+</body>
+</html>
