@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>13F Thematic Aggregator — Standalone Preview</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:"#eef2ff", 400:"#818cf8", 500:"#6366f1", 600:"#4f46e5", 700:"#4338ca", 900:"#1e1b4b" }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    body{background:#0f0f17;color:#e2e8f0;font-family:'Inter',sans-serif}
+    .glass{background:rgba(22,22,31,0.85);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.07)}
+    .badge{font-size:.62rem;padding:2px 8px;border-radius:9999px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+    .badge-new{background:#14532d;color:#86efac}
+    .badge-increased{background:#1e3a5f;color:#93c5fd}
+    .badge-decreased{background:#4a1942;color:#f0abfc}
+    .badge-sold{background:#450a0a;color:#fca5a5}
+    .tab-active{background:rgba(99,102,241,0.15);border-bottom:2px solid #6366f1;color:#a5b4fc}
+    .tab{border-bottom:2px solid transparent;color:#64748b;transition:all .2s;cursor:pointer}
+    .tab:hover{color:#94a3b8}
+    .conviction-bar{height:6px;border-radius:3px;background:#2a2a3a;overflow:hidden}
+    .conviction-fill{height:100%;border-radius:3px;transition:width .5s ease}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:#16161f}
+    ::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:3px}
+    .fade-in{animation:fadeIn .35s ease}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .chip{display:inline-block;background:#1e293b;color:#94a3b8;border-radius:9999px;font-size:.65rem;padding:2px 8px;white-space:nowrap}
+  </style>
+</head>
+<body class="dark min-h-screen">
+
+<!-- NAV -->
+<nav class="glass sticky top-0 z-50 flex items-center justify-between px-6 py-3 border-b border-white/5">
+  <div class="flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    </div>
+    <span class="font-semibold text-white text-sm tracking-wide">13F Thematic Aggregator</span>
+    <span class="chip ml-2">Q4 2024 · Demo Data</span>
+  </div>
+  <div class="text-xs text-slate-500">10 Institutions · 4 Quarters</div>
+</nav>
+
+<!-- TABS -->
+<div class="max-w-7xl mx-auto px-4 pt-6">
+  <div class="flex gap-1 border-b border-white/5 mb-7">
+    <button class="tab tab-active px-5 py-3 text-sm font-medium" onclick="switchTab('dashboard',this)">Dashboard</button>
+    <button class="tab px-5 py-3 text-sm font-medium" onclick="switchTab('funds',this)">Fund Explorer</button>
+    <button class="tab px-5 py-3 text-sm font-medium" onclick="switchTab('themes',this)">Theme Explorer</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="tab-dashboard" class="fade-in">
+    <!-- KPIs -->
+    <div id="kpi-row" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-7"></div>
+    <!-- Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-7">
+      <div class="glass rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-slate-300 mb-4">Sector Conviction Score</h3>
+        <div style="height:290px"><canvas id="convChart"></canvas></div>
+      </div>
+      <div class="glass rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-slate-300 mb-4">Funds Buying vs Selling by Sector</h3>
+        <div style="height:290px"><canvas id="buyChart"></canvas></div>
+      </div>
+    </div>
+    <!-- Top buys -->
+    <div class="glass rounded-xl p-5 mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-slate-300">Highest Conviction Buys — All Funds</h3>
+        <span class="text-xs text-slate-500">ranked by # funds buying</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs text-slate-500 border-b border-white/5">
+              <th class="pb-2 pr-4">#</th>
+              <th class="pb-2 pr-4">Ticker / Issuer</th>
+              <th class="pb-2 pr-4">Sector</th>
+              <th class="pb-2 pr-4 text-right">Funds</th>
+              <th class="pb-2 text-right">Value Δ ($K)</th>
+            </tr>
+          </thead>
+          <tbody id="buys-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- FUND EXPLORER -->
+  <div id="tab-funds" class="hidden fade-in">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div class="glass rounded-xl p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-3">Tracked Institutions</h3>
+        <div id="fund-list" class="space-y-1"></div>
+      </div>
+      <div class="lg:col-span-2">
+        <div id="fund-panel" class="glass rounded-xl p-5 hidden">
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <h2 id="fp-name" class="text-base font-semibold text-white"></h2>
+              <p id="fp-meta" class="text-xs text-slate-400 mt-0.5"></p>
+            </div>
+            <div class="text-right">
+              <div id="fp-value" class="text-xl font-bold text-brand-400"></div>
+              <div class="text-xs text-slate-500">Portfolio ($K)</div>
+            </div>
+          </div>
+          <div style="height:180px" class="mb-5"><canvas id="fundDonut"></canvas></div>
+          <!-- Action filters -->
+          <div class="flex flex-wrap gap-2 mb-3">
+            <button class="af tab tab-active px-3 py-1 text-xs rounded-lg" onclick="filterAct('all',this)">All</button>
+            <button class="af tab px-3 py-1 text-xs rounded-lg" onclick="filterAct('NEW',this)">New</button>
+            <button class="af tab px-3 py-1 text-xs rounded-lg" onclick="filterAct('INCREASED',this)">Increased</button>
+            <button class="af tab px-3 py-1 text-xs rounded-lg" onclick="filterAct('DECREASED',this)">Decreased</button>
+            <button class="af tab px-3 py-1 text-xs rounded-lg" onclick="filterAct('SOLD_OUT',this)">Sold Out</button>
+          </div>
+          <div class="overflow-x-auto max-h-80 overflow-y-auto">
+            <table class="w-full text-xs">
+              <thead class="sticky top-0" style="background:#16161f">
+                <tr class="text-left text-slate-500 border-b border-white/5">
+                  <th class="pb-2 pr-3">Ticker</th>
+                  <th class="pb-2 pr-3">Action</th>
+                  <th class="pb-2 pr-3">Sector</th>
+                  <th class="pb-2 pr-3 text-right">Prev Shares</th>
+                  <th class="pb-2 pr-3 text-right">Curr Shares</th>
+                  <th class="pb-2 text-right">Value Δ</th>
+                </tr>
+              </thead>
+              <tbody id="fp-changes"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="fund-placeholder" class="glass rounded-xl p-12 text-center text-slate-500 text-sm">
+          ← Select a fund
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THEME EXPLORER -->
+  <div id="tab-themes" class="hidden fade-in">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div class="glass rounded-xl p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-3">Sectors by Conviction</h3>
+        <div id="sector-list" class="space-y-3"></div>
+      </div>
+      <div class="lg:col-span-2">
+        <div id="sector-panel" class="glass rounded-xl p-5 hidden">
+          <div class="flex items-start justify-between mb-5">
+            <div>
+              <h2 id="sp-name" class="text-base font-semibold text-white"></h2>
+              <p id="sp-meta" class="text-xs text-slate-400 mt-0.5"></p>
+            </div>
+            <div id="sp-score" class="text-right"></div>
+          </div>
+          <div class="overflow-x-auto max-h-96 overflow-y-auto">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0" style="background:#16161f">
+                <tr class="text-left text-xs text-slate-500 border-b border-white/5">
+                  <th class="pb-2 pr-4">Ticker / Issuer</th>
+                  <th class="pb-2 pr-4 text-center">Buying</th>
+                  <th class="pb-2 pr-4 text-center">Selling</th>
+                  <th class="pb-2 text-right">Value Δ ($K)</th>
+                </tr>
+              </thead>
+              <tbody id="sp-stocks"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="sector-placeholder" class="glass rounded-xl p-12 text-center text-slate-500 text-sm">
+          ← Select a sector
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Embedded demo data ─────────────────────────────────────────────────────
+const DATA = {"dashboard":{"period":"2024-12-31","themes":[{"sector":"Consumer Staples","period":"2024-12-31","funds_buying":2,"funds_selling":0,"funds_new":0,"total_value_chg":-946892.0,"conviction_score":1.0},{"sector":"Energy","period":"2024-12-31","funds_buying":1,"funds_selling":0,"funds_new":0,"total_value_chg":3663720.0,"conviction_score":1.0},{"sector":"Financials","period":"2024-12-31","funds_buying":8,"funds_selling":0,"funds_new":0,"total_value_chg":-5397935.0,"conviction_score":1.0},{"sector":"Cybersecurity","period":"2024-12-31","funds_buying":3,"funds_selling":0,"funds_new":0,"total_value_chg":-762983.0,"conviction_score":0.6},{"sector":"Cloud & SaaS","period":"2024-12-31","funds_buying":7,"funds_selling":2,"funds_new":0,"total_value_chg":4042950.0,"conviction_score":0.5556},{"sector":"Industrials","period":"2024-12-31","funds_buying":4,"funds_selling":1,"funds_new":0,"total_value_chg":-2316413.0,"conviction_score":0.4286},{"sector":"Technology","period":"2024-12-31","funds_buying":6,"funds_selling":3,"funds_new":0,"total_value_chg":7614830.0,"conviction_score":0.375},{"sector":"Healthcare & Biotech","period":"2024-12-31","funds_buying":6,"funds_selling":5,"funds_new":0,"total_value_chg":-5998618.0,"conviction_score":0.1111},{"sector":"Semiconductors","period":"2024-12-31","funds_buying":2,"funds_selling":3,"funds_new":0,"total_value_chg":3801497.0,"conviction_score":-0.2},{"sector":"AI & Data Infrastructure","period":"2024-12-31","funds_buying":2,"funds_selling":4,"funds_new":0,"total_value_chg":-7364702.0,"conviction_score":-0.3333},{"sector":"Consumer Discretionary","period":"2024-12-31","funds_buying":1,"funds_selling":2,"funds_new":0,"total_value_chg":-3708324.0,"conviction_score":-0.3333}],"top_buys":[{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","fund_count":5,"total_value_chg":2227356.0},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","fund_count":5,"total_value_chg":-852525.0},{"cusip":"594918104","ticker":"MSFT","issuer_name":"Microsoft Corp","sector":"Technology","fund_count":4,"total_value_chg":5223075.0},{"cusip":"461202103","ticker":"JPM","issuer_name":"JPMorgan Chase","sector":"Financials","fund_count":3,"total_value_chg":-1433384.0},{"cusip":"57636Q104","ticker":"MA","issuer_name":"Mastercard Inc","sector":"Financials","fund_count":3,"total_value_chg":-3614133.0},{"cusip":"30303M102","ticker":"META","issuer_name":"Meta Platforms","sector":"Technology","fund_count":3,"total_value_chg":2524871.0},{"cusip":"81762P102","ticker":"SNOW","issuer_name":"Snowflake Inc","sector":"Cloud & SaaS","fund_count":3,"total_value_chg":2404761.0},{"cusip":"369604103","ticker":"GE","issuer_name":"GE Aerospace","sector":"Industrials","fund_count":2,"total_value_chg":1440038.0},{"cusip":"191216100","ticker":"KO","issuer_name":"Coca-Cola Co","sector":"Consumer Staples","fund_count":2,"total_value_chg":-946892.0},{"cusip":"084670702","ticker":"BRK.B","issuer_name":"Berkshire Hathaway B","sector":"Financials","fund_count":2,"total_value_chg":-1981912.0},{"cusip":"097023105","ticker":"BA","issuer_name":"Boeing Co","sector":"Industrials","fund_count":2,"total_value_chg":2880585.0},{"cusip":"98980G102","ticker":"ZS","issuer_name":"Zscaler Inc","sector":"Cybersecurity","fund_count":2,"total_value_chg":58921.0},{"cusip":"879585208","ticker":"TSM","issuer_name":"Taiwan Semiconductor","sector":"Semiconductors","fund_count":2,"total_value_chg":1438419.0},{"cusip":"69608A108","ticker":"PLTR","issuer_name":"Palantir Technologies A","sector":"AI & Data Infrastructure","fund_count":2,"total_value_chg":-5222299.0},{"cusip":"46090E103","ticker":"NOW","issuer_name":"ServiceNow Inc","sector":"Cloud & SaaS","fund_count":2,"total_value_chg":-1777317.0},{"cusip":"91324P102","ticker":"UNH","issuer_name":"UnitedHealth Group","sector":"Healthcare & Biotech","fund_count":2,"total_value_chg":-694984.0},{"cusip":"02079K305","ticker":"GOOGL","issuer_name":"Alphabet Inc","sector":"Technology","fund_count":1,"total_value_chg":557695.0},{"cusip":"023135106","ticker":"AMZN","issuer_name":"Amazon.com Inc","sector":"Technology","fund_count":1,"total_value_chg":-282694.0},{"cusip":"037833100","ticker":"AAPL","issuer_name":"Apple Inc","sector":"Technology","fund_count":1,"total_value_chg":1867159.0},{"cusip":"45866F104","ticker":"INTC","issuer_name":"Intel Corp","sector":"Semiconductors","fund_count":1,"total_value_chg":1024686.0}],"funds":[{"id":1,"name":"Berkshire Hathaway","cik":"0001067983"},{"id":2,"name":"Renaissance Technologies","cik":"0001037389"},{"id":3,"name":"Pershing Square Capital","cik":"0001336528"},{"id":4,"name":"Scion Asset Management","cik":"0001649339"},{"id":5,"name":"Viking Global Investors","cik":"0001103804"},{"id":6,"name":"Tiger Global Management","cik":"0001167483"},{"id":7,"name":"Appaloosa Management","cik":"0000831641"},{"id":8,"name":"Third Point LLC","cik":"0001040273"},{"id":9,"name":"Bridgewater Associates","cik":"0001350694"},{"id":10,"name":"Baupost Group","cik":"0001061219"}]},"funds_detail":{"1":{"id":1,"cik":"0001067983","name":"Berkshire Hathaway","total_value":12588206.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Financials","value":5046197.0},{"sector":"Healthcare & Biotech","value":3370376.0},{"sector":"AI & Data Infrastructure","value":2123286.0},{"sector":"Cloud & SaaS","value":1693563.0},{"sector":"Technology","value":354784.0}],"changes":[{"cusip":"92826C839","ticker":"V","issuer_name":"Visa Inc","sector":"Financials","action":"INCREASED","prev_shares":5701333.0,"curr_shares":7696800.0,"prev_value":3414703.0,"curr_value":5046197.0,"shares_chg_pct":35.0,"value_chg":1631494.0,"period":"2024-12-31"},{"cusip":"58933Y105","ticker":"MRK","issuer_name":"Merck & Co","sector":"Healthcare & Biotech","action":"DECREASED","prev_shares":5123154.0,"curr_shares":4610839.0,"prev_value":1501684.0,"curr_value":2008560.0,"shares_chg_pct":-10.0,"value_chg":506876.0,"period":"2024-12-31"},{"cusip":"02079K305","ticker":"GOOGL","issuer_name":"Alphabet Inc","sector":"Technology","action":"DECREASED","prev_shares":630292.0,"curr_shares":598777.0,"prev_value":144708.0,"curr_value":354784.0,"shares_chg_pct":-5.0,"value_chg":210076.0,"period":"2024-12-31"},{"cusip":"69608A108","ticker":"PLTR","issuer_name":"Palantir Technologies A","sector":"AI & Data Infrastructure","action":"DECREASED","prev_shares":1870567.0,"curr_shares":1683510.0,"prev_value":1274328.0,"curr_value":511053.0,"shares_chg_pct":-10.0,"value_chg":-763275.0,"period":"2024-12-31"},{"cusip":"46090E103","ticker":"NOW","issuer_name":"ServiceNow Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":4066837.0,"curr_shares":4473521.0,"prev_value":3167725.0,"curr_value":1693563.0,"shares_chg_pct":10.0,"value_chg":-1474162.0,"period":"2024-12-31"}]},"2":{"id":2,"cik":"0001037389","name":"Renaissance Technologies","total_value":13390473.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Technology","value":5709033.0},{"sector":"Healthcare & Biotech","value":2986665.0},{"sector":"Consumer Staples","value":1997697.0},{"sector":"Consumer Discretionary","value":1310490.0},{"sector":"Cloud & SaaS","value":959058.0},{"sector":"Financials","value":427530.0}],"changes":[{"cusip":"30303M102","ticker":"META","issuer_name":"Meta Platforms","sector":"Technology","action":"INCREASED","prev_shares":6386669.0,"curr_shares":7664003.0,"prev_value":3612446.0,"curr_value":4994450.0,"shares_chg_pct":20.0,"value_chg":1382004.0,"period":"2024-12-31"},{"cusip":"855244109","ticker":"TSLA","issuer_name":"Tesla Inc","sector":"Consumer Discretionary","action":"DECREASED","prev_shares":5635042.0,"curr_shares":4789786.0,"prev_value":820373.0,"curr_value":653836.0,"shares_chg_pct":-15.0,"value_chg":-166537.0,"period":"2024-12-31"},{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":2025095.0,"curr_shares":2430114.0,"prev_value":953172.0,"curr_value":719791.0,"shares_chg_pct":20.0,"value_chg":-233381.0,"period":"2024-12-31"},{"cusip":"023135106","ticker":"AMZN","issuer_name":"Amazon.com Inc","sector":"Technology","action":"INCREASED","prev_shares":2171804.0,"curr_shares":2280394.0,"prev_value":997277.0,"curr_value":714583.0,"shares_chg_pct":5.0,"value_chg":-282694.0,"period":"2024-12-31"},{"cusip":"46090E103","ticker":"NOW","issuer_name":"ServiceNow Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":776603.0,"curr_shares":1242565.0,"prev_value":542422.0,"curr_value":239267.0,"shares_chg_pct":60.0,"value_chg":-303155.0,"period":"2024-12-31"},{"cusip":"91324P102","ticker":"UNH","issuer_name":"UnitedHealth Group","sector":"Healthcare & Biotech","action":"DECREASED","prev_shares":5063404.0,"curr_shares":4303893.0,"prev_value":3402664.0,"curr_value":2986665.0,"shares_chg_pct":-15.0,"value_chg":-415999.0,"period":"2024-12-31"},{"cusip":"191216100","ticker":"KO","issuer_name":"Coca-Cola Co","sector":"Consumer Staples","action":"INCREASED","prev_shares":4739166.0,"curr_shares":6397874.0,"prev_value":2977805.0,"curr_value":1997697.0,"shares_chg_pct":35.0,"value_chg":-980108.0,"period":"2024-12-31"},{"cusip":"097023105","ticker":"BA","issuer_name":"Boeing Co","sector":"Industrials","action":"SOLD_OUT","prev_shares":6764698.0,"curr_shares":0.0,"prev_value":1248225.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-1248225.0,"period":"2024-12-31"},{"cusip":"57636Q104","ticker":"MA","issuer_name":"Mastercard Inc","sector":"Financials","action":"INCREASED","prev_shares":5174186.0,"curr_shares":5432895.0,"prev_value":2905564.0,"curr_value":427530.0,"shares_chg_pct":5.0,"value_chg":-2478034.0,"period":"2024-12-31"}]},"3":{"id":3,"cik":"0001336528","name":"Pershing Square Capital","total_value":20070533.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Semiconductors","value":6213385.0},{"sector":"Industrials","value":4429708.0},{"sector":"Cybersecurity","value":3426079.0},{"sector":"AI & Data Infrastructure","value":3066180.0},{"sector":"Financials","value":1323162.0},{"sector":"Technology","value":814959.0},{"sector":"Healthcare & Biotech","value":420443.0},{"sector":"Cloud & SaaS","value":376617.0}],"changes":[{"cusip":"097023105","ticker":"BA","issuer_name":"Boeing Co","sector":"Industrials","action":"INCREASED","prev_shares":3582510.0,"curr_shares":5732016.0,"prev_value":2124916.0,"curr_value":4429708.0,"shares_chg_pct":60.0,"value_chg":2304792.0,"period":"2024-12-31"},{"cusip":"879585208","ticker":"TSM","issuer_name":"Taiwan Semiconductor","sector":"Semiconductors","action":"INCREASED","prev_shares":2940832.0,"curr_shares":4705331.0,"prev_value":891441.0,"curr_value":3077973.0,"shares_chg_pct":60.0,"value_chg":2186532.0,"period":"2024-12-31"},{"cusip":"98980G102","ticker":"ZS","issuer_name":"Zscaler Inc","sector":"Cybersecurity","action":"INCREASED","prev_shares":5219242.0,"curr_shares":5480204.0,"prev_value":2161974.0,"curr_value":3426079.0,"shares_chg_pct":5.0,"value_chg":1264105.0,"period":"2024-12-31"},{"cusip":"45866F104","ticker":"INTC","issuer_name":"Intel Corp","sector":"Semiconductors","action":"INCREASED","prev_shares":4013480.0,"curr_shares":4414828.0,"prev_value":960039.0,"curr_value":1984725.0,"shares_chg_pct":10.0,"value_chg":1024686.0,"period":"2024-12-31"},{"cusip":"67066G104","ticker":"NVDA","issuer_name":"NVIDIA Corp","sector":"Semiconductors","action":"DECREASED","prev_shares":1813060.0,"curr_shares":1541101.0,"prev_value":895506.0,"curr_value":1150687.0,"shares_chg_pct":-15.0,"value_chg":255181.0,"period":"2024-12-31"},{"cusip":"81762P102","ticker":"SNOW","issuer_name":"Snowflake Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":903182.0,"curr_shares":1083818.0,"prev_value":480549.0,"curr_value":376617.0,"shares_chg_pct":20.0,"value_chg":-103932.0,"period":"2024-12-31"},{"cusip":"69608A108","ticker":"PLTR","issuer_name":"Palantir Technologies A","sector":"AI & Data Infrastructure","action":"DECREASED","prev_shares":4172448.0,"curr_shares":3963826.0,"prev_value":3277631.0,"curr_value":3066180.0,"shares_chg_pct":-5.0,"value_chg":-211451.0,"period":"2024-12-31"},{"cusip":"084670702","ticker":"BRK.B","issuer_name":"Berkshire Hathaway B","sector":"Financials","action":"INCREASED","prev_shares":2355747.0,"curr_shares":2591322.0,"prev_value":789848.0,"curr_value":565340.0,"shares_chg_pct":10.0,"value_chg":-224508.0,"period":"2024-12-31"},{"cusip":"02079K305","ticker":"GOOGL","issuer_name":"Alphabet Inc","sector":"Technology","action":"DECREASED","prev_shares":3747570.0,"curr_shares":3560192.0,"prev_value":1700143.0,"curr_value":814959.0,"shares_chg_pct":-5.0,"value_chg":-885184.0,"period":"2024-12-31"}]},"4":{"id":4,"cik":"0001649339","name":"Scion Asset Management","total_value":11941915.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Financials","value":4822647.0},{"sector":"Semiconductors","value":3739797.0},{"sector":"Cloud & SaaS","value":2093324.0},{"sector":"Healthcare & Biotech","value":1286147.0}],"changes":[{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"DECREASED","prev_shares":4238684.0,"curr_shares":3602881.0,"prev_value":1073181.0,"curr_value":2093324.0,"shares_chg_pct":-15.0,"value_chg":1020143.0,"period":"2024-12-31"},{"cusip":"57636Q104","ticker":"MA","issuer_name":"Mastercard Inc","sector":"Financials","action":"INCREASED","prev_shares":4997081.0,"curr_shares":5246935.0,"prev_value":3370388.0,"curr_value":3965621.0,"shares_chg_pct":5.0,"value_chg":595233.0,"period":"2024-12-31"},{"cusip":"67066G104","ticker":"NVDA","issuer_name":"NVIDIA Corp","sector":"Semiconductors","action":"DECREASED","prev_shares":5635509.0,"curr_shares":4790183.0,"prev_value":3330379.0,"curr_value":3739797.0,"shares_chg_pct":-15.0,"value_chg":409418.0,"period":"2024-12-31"},{"cusip":"461202103","ticker":"JPM","issuer_name":"JPMorgan Chase","sector":"Financials","action":"INCREASED","prev_shares":5001029.0,"curr_shares":6751389.0,"prev_value":968478.0,"curr_value":857026.0,"shares_chg_pct":35.0,"value_chg":-111452.0,"period":"2024-12-31"},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":3046658.0,"curr_shares":3198991.0,"prev_value":1808005.0,"curr_value":1286147.0,"shares_chg_pct":5.0,"value_chg":-521858.0,"period":"2024-12-31"}]},"5":{"id":5,"cik":"0001103804","name":"Viking Global Investors","total_value":10812087.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Healthcare & Biotech","value":2534695.0},{"sector":"Cloud & SaaS","value":1955346.0},{"sector":"Technology","value":1928417.0},{"sector":"AI & Data Infrastructure","value":1456450.0},{"sector":"Industrials","value":1442919.0},{"sector":"Financials","value":871113.0},{"sector":"Cybersecurity","value":623147.0}],"changes":[{"cusip":"594918104","ticker":"PANW","issuer_name":"Palo Alto Networks","sector":"Cybersecurity","action":"INCREASED","prev_shares":3325120.0,"curr_shares":4802770.0,"prev_value":954071.0,"curr_value":2551564.0,"shares_chg_pct":44.44,"value_chg":1597493.0,"period":"2024-12-31"},{"cusip":"58933Y105","ticker":"MRK","issuer_name":"Merck & Co","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":1846312.0,"curr_shares":1938628.0,"prev_value":462117.0,"curr_value":1314597.0,"shares_chg_pct":5.0,"value_chg":852480.0,"period":"2024-12-31"},{"cusip":"097023105","ticker":"BA","issuer_name":"Boeing Co","sector":"Industrials","action":"INCREASED","prev_shares":1868046.0,"curr_shares":2054851.0,"prev_value":867126.0,"curr_value":1442919.0,"shares_chg_pct":10.0,"value_chg":575793.0,"period":"2024-12-31"},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":1746284.0,"curr_shares":1833598.0,"prev_value":906420.0,"curr_value":1220098.0,"shares_chg_pct":5.0,"value_chg":313678.0,"period":"2024-12-31"},{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":580736.0,"curr_shares":783994.0,"prev_value":41611.0,"curr_value":242131.0,"shares_chg_pct":35.0,"value_chg":200520.0,"period":"2024-12-31"},{"cusip":"74762E102","ticker":"PLTR","issuer_name":"Palantir Technologies","sector":"AI & Data Infrastructure","action":"INCREASED","prev_shares":3835126.0,"curr_shares":5177420.0,"prev_value":1096416.0,"curr_value":1205294.0,"shares_chg_pct":35.0,"value_chg":108878.0,"period":"2024-12-31"},{"cusip":"69608A108","ticker":"PLTR","issuer_name":"Palantir Technologies A","sector":"AI & Data Infrastructure","action":"INCREASED","prev_shares":2529711.0,"curr_shares":3035653.0,"prev_value":1072045.0,"curr_value":251156.0,"shares_chg_pct":20.0,"value_chg":-820889.0,"period":"2024-12-31"},{"cusip":"084670702","ticker":"BRK.B","issuer_name":"Berkshire Hathaway B","sector":"Financials","action":"INCREASED","prev_shares":3762103.0,"curr_shares":4514524.0,"prev_value":2628517.0,"curr_value":871113.0,"shares_chg_pct":20.0,"value_chg":-1757404.0,"period":"2024-12-31"},{"cusip":"91324P102","ticker":"UNH","issuer_name":"UnitedHealth Group","sector":"Healthcare & Biotech","action":"SOLD_OUT","prev_shares":5192931.0,"curr_shares":0.0,"prev_value":3024036.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-3024036.0,"period":"2024-12-31"}]},"6":{"id":6,"cik":"0001167483","name":"Tiger Global Management","total_value":25868031.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Semiconductors","value":8168179.0},{"sector":"Cybersecurity","value":4935215.0},{"sector":"Cloud & SaaS","value":4926514.0},{"sector":"Healthcare & Biotech","value":2649781.0},{"sector":"Technology","value":2112432.0},{"sector":"Financials","value":1009018.0},{"sector":"Consumer Discretionary","value":951719.0},{"sector":"Industrials","value":888288.0},{"sector":"Consumer Staples","value":226885.0}],"changes":[{"cusip":"67066G104","ticker":"NVDA","issuer_name":"NVIDIA Corp","sector":"Semiconductors","action":"INCREASED","prev_shares":3946727.0,"curr_shares":5328081.0,"prev_value":588535.0,"curr_value":3900372.0,"shares_chg_pct":35.0,"value_chg":3311837.0,"period":"2024-12-31"},{"cusip":"594918104","ticker":"MSFT","issuer_name":"Microsoft Corp","sector":"Technology","action":"INCREASED","prev_shares":7863692.0,"curr_shares":11245081.0,"prev_value":4420080.0,"curr_value":7047647.0,"shares_chg_pct":43.0,"value_chg":2627567.0,"period":"2024-12-31"},{"cusip":"81762P102","ticker":"SNOW","issuer_name":"Snowflake Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":4489943.0,"curr_shares":5387932.0,"prev_value":2836772.0,"curr_value":4178084.0,"shares_chg_pct":20.0,"value_chg":1341312.0,"period":"2024-12-31"},{"cusip":"191216100","ticker":"KO","issuer_name":"Coca-Cola Co","sector":"Consumer Staples","action":"INCREASED","prev_shares":656419.0,"curr_shares":1050270.0,"prev_value":193669.0,"curr_value":226885.0,"shares_chg_pct":60.0,"value_chg":33216.0,"period":"2024-12-31"},{"cusip":"855244109","ticker":"TSLA","issuer_name":"Tesla Inc","sector":"Consumer Discretionary","action":"DECREASED","prev_shares":4023628.0,"curr_shares":3420084.0,"prev_value":976645.0,"curr_value":951719.0,"shares_chg_pct":-15.0,"value_chg":-24926.0,"period":"2024-12-31"},{"cusip":"037833100","ticker":"AAPL","issuer_name":"Apple Inc","sector":"Technology","action":"SOLD_OUT","prev_shares":1865139.0,"curr_shares":0.0,"prev_value":290155.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-290155.0,"period":"2024-12-31"},{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":5779389.0,"curr_shares":6357328.0,"prev_value":1238254.0,"curr_value":748430.0,"shares_chg_pct":10.0,"value_chg":-489824.0,"period":"2024-12-31"},{"cusip":"879585208","ticker":"TSM","issuer_name":"Taiwan Semiconductor","sector":"Semiconductors","action":"INCREASED","prev_shares":8983898.0,"curr_shares":9433093.0,"prev_value":5015920.0,"curr_value":4267807.0,"shares_chg_pct":5.0,"value_chg":-748113.0,"period":"2024-12-31"},{"cusip":"91324P102","ticker":"UNH","issuer_name":"UnitedHealth Group","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":5658547.0,"curr_shares":6790256.0,"prev_value":3696018.0,"curr_value":2649781.0,"shares_chg_pct":20.0,"value_chg":-1046237.0,"period":"2024-12-31"},{"cusip":"57636Q104","ticker":"MA","issuer_name":"Mastercard Inc","sector":"Financials","action":"INCREASED","prev_shares":6114952.0,"curr_shares":7337942.0,"prev_value":2740350.0,"curr_value":1009018.0,"shares_chg_pct":20.0,"value_chg":-1731332.0,"period":"2024-12-31"},{"cusip":"097023105","ticker":"BA","issuer_name":"Boeing Co","sector":"Industrials","action":"DECREASED","prev_shares":4365268.0,"curr_shares":3928741.0,"prev_value":3385431.0,"curr_value":888288.0,"shares_chg_pct":-10.0,"value_chg":-2497143.0,"period":"2024-12-31"}]},"7":{"id":7,"cik":"0000831641","name":"Appaloosa Management","total_value":10638322.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Cloud & SaaS","value":3243957.0},{"sector":"Healthcare & Biotech","value":2679467.0},{"sector":"Technology","value":2267396.0},{"sector":"Industrials","value":2243722.0},{"sector":"Financials","value":203780.0}],"changes":[{"cusip":"369604103","ticker":"GE","issuer_name":"GE Aerospace","sector":"Industrials","action":"INCREASED","prev_shares":2667024.0,"curr_shares":3200429.0,"prev_value":993865.0,"curr_value":2243722.0,"shares_chg_pct":20.0,"value_chg":1249857.0,"period":"2024-12-31"},{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"DECREASED","prev_shares":4166771.0,"curr_shares":3958432.0,"prev_value":1552341.0,"curr_value":2147656.0,"shares_chg_pct":-5.0,"value_chg":595315.0,"period":"2024-12-31"},{"cusip":"594918104","ticker":"MSFT","issuer_name":"Microsoft Corp","sector":"Technology","action":"INCREASED","prev_shares":1836807.0,"curr_shares":2938891.0,"prev_value":1038009.0,"curr_value":1499363.0,"shares_chg_pct":60.0,"value_chg":461354.0,"period":"2024-12-31"},{"cusip":"30303M102","ticker":"META","issuer_name":"Meta Platforms","sector":"Technology","action":"INCREASED","prev_shares":986921.0,"curr_shares":1036267.0,"prev_value":461167.0,"curr_value":768033.0,"shares_chg_pct":5.0,"value_chg":306866.0,"period":"2024-12-31"},{"cusip":"002824100","ticker":"ABBV","issuer_name":"AbbVie Inc","sector":"Healthcare & Biotech","action":"DECREASED","prev_shares":1191566.0,"curr_shares":1012831.0,"prev_value":802912.0,"curr_value":513248.0,"shares_chg_pct":-15.0,"value_chg":-289664.0,"period":"2024-12-31"},{"cusip":"81762P102","ticker":"SNOW","issuer_name":"Snowflake Inc","sector":"Cloud & SaaS","action":"DECREASED","prev_shares":3401538.0,"curr_shares":3061384.0,"prev_value":1523609.0,"curr_value":1096301.0,"shares_chg_pct":-10.0,"value_chg":-427308.0,"period":"2024-12-31"},{"cusip":"98980G102","ticker":"ZS","issuer_name":"Zscaler Inc","sector":"Cybersecurity","action":"SOLD_OUT","prev_shares":1728784.0,"curr_shares":0.0,"prev_value":603428.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-603428.0,"period":"2024-12-31"},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":4123595.0,"curr_shares":4329775.0,"prev_value":2843609.0,"curr_value":2166219.0,"shares_chg_pct":5.0,"value_chg":-677390.0,"period":"2024-12-31"},{"cusip":"461202103","ticker":"JPM","issuer_name":"JPMorgan Chase","sector":"Financials","action":"INCREASED","prev_shares":2706221.0,"curr_shares":2841532.0,"prev_value":1646578.0,"curr_value":203780.0,"shares_chg_pct":5.0,"value_chg":-1442798.0,"period":"2024-12-31"}]},"8":{"id":8,"cik":"0001040273","name":"Third Point LLC","total_value":16797729.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Energy","value":6797713.0},{"sector":"Technology","value":4669765.0},{"sector":"Healthcare & Biotech","value":2906955.0},{"sector":"Cloud & SaaS","value":1395553.0},{"sector":"AI & Data Infrastructure","value":529167.0},{"sector":"Consumer Discretionary","value":498576.0}],"changes":[{"cusip":"166764100","ticker":"CVX","issuer_name":"Chevron Corp","sector":"Energy","action":"INCREASED","prev_shares":10002379.0,"curr_shares":10502498.0,"prev_value":3133993.0,"curr_value":6797713.0,"shares_chg_pct":5.0,"value_chg":3663720.0,"period":"2024-12-31"},{"cusip":"037833100","ticker":"AAPL","issuer_name":"Apple Inc","sector":"Technology","action":"INCREASED","prev_shares":3987935.0,"curr_shares":4386728.0,"prev_value":1195589.0,"curr_value":3062748.0,"shares_chg_pct":10.0,"value_chg":1867159.0,"period":"2024-12-31"},{"cusip":"30303M102","ticker":"META","issuer_name":"Meta Platforms","sector":"Technology","action":"INCREASED","prev_shares":3393531.0,"curr_shares":3732884.0,"prev_value":771016.0,"curr_value":1607017.0,"shares_chg_pct":10.0,"value_chg":836001.0,"period":"2024-12-31"},{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":2597573.0,"curr_shares":3506724.0,"prev_value":980672.0,"curr_value":1395553.0,"shares_chg_pct":35.0,"value_chg":414881.0,"period":"2024-12-31"},{"cusip":"91324P102","ticker":"UNH","issuer_name":"UnitedHealth Group","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":2765053.0,"curr_shares":4424085.0,"prev_value":1359448.0,"curr_value":1710701.0,"shares_chg_pct":60.0,"value_chg":351253.0,"period":"2024-12-31"},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":1404730.0,"curr_shares":2247568.0,"prev_value":987375.0,"curr_value":1196254.0,"shares_chg_pct":60.0,"value_chg":208879.0,"period":"2024-12-31"},{"cusip":"74762E102","ticker":"PLTR","issuer_name":"Palantir Technologies","sector":"AI & Data Infrastructure","action":"DECREASED","prev_shares":3215380.0,"curr_shares":2893842.0,"prev_value":2167229.0,"curr_value":529167.0,"shares_chg_pct":-10.0,"value_chg":-1638062.0,"period":"2024-12-31"}]},"9":{"id":9,"cik":"0001350694","name":"Bridgewater Associates","total_value":14057799.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Technology","value":6405210.0},{"sector":"Healthcare & Biotech","value":3311754.0},{"sector":"Consumer Discretionary","value":1628610.0},{"sector":"Industrials","value":904465.0},{"sector":"Cybersecurity","value":736087.0},{"sector":"AI & Data Infrastructure","value":671228.0},{"sector":"Financials","value":400445.0}],"changes":[{"cusip":"594918104","ticker":"MSFT","issuer_name":"Microsoft Corp","sector":"Technology","action":"INCREASED","prev_shares":6962210.0,"curr_shares":7658431.0,"prev_value":2315213.0,"curr_value":3568106.0,"shares_chg_pct":10.0,"value_chg":1252893.0,"period":"2024-12-31"},{"cusip":"369604103","ticker":"GE","issuer_name":"GE Aerospace","sector":"Industrials","action":"INCREASED","prev_shares":919058.0,"curr_shares":1240728.0,"prev_value":714284.0,"curr_value":904465.0,"shares_chg_pct":35.0,"value_chg":190181.0,"period":"2024-12-31"},{"cusip":"461202103","ticker":"JPM","issuer_name":"JPMorgan Chase","sector":"Financials","action":"INCREASED","prev_shares":3377808.0,"curr_shares":3546698.0,"prev_value":279579.0,"curr_value":400445.0,"shares_chg_pct":5.0,"value_chg":120866.0,"period":"2024-12-31"},{"cusip":"002824100","ticker":"ABBV","issuer_name":"AbbVie Inc","sector":"Healthcare & Biotech","action":"DECREASED","prev_shares":3902041.0,"curr_shares":3511837.0,"prev_value":3022916.0,"curr_value":2385880.0,"shares_chg_pct":-10.0,"value_chg":-637036.0,"period":"2024-12-31"},{"cusip":"98980G102","ticker":"ZS","issuer_name":"Zscaler Inc","sector":"Cybersecurity","action":"INCREASED","prev_shares":3063908.0,"curr_shares":3370299.0,"prev_value":1941271.0,"curr_value":736087.0,"shares_chg_pct":10.0,"value_chg":-1205184.0,"period":"2024-12-31"},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","action":"DECREASED","prev_shares":3015908.0,"curr_shares":2563522.0,"prev_value":2195523.0,"curr_value":925874.0,"shares_chg_pct":-15.0,"value_chg":-1269649.0,"period":"2024-12-31"},{"cusip":"879585208","ticker":"TSM","issuer_name":"Taiwan Semiconductor","sector":"Semiconductors","action":"SOLD_OUT","prev_shares":4815963.0,"curr_shares":0.0,"prev_value":3163042.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-3163042.0,"period":"2024-12-31"},{"cusip":"828806109","ticker":"SBUX","issuer_name":"Starbucks Corp","sector":"Consumer Discretionary","action":"INCREASED","prev_shares":6527053.0,"curr_shares":7179758.0,"prev_value":5145471.0,"curr_value":1628610.0,"shares_chg_pct":10.0,"value_chg":-3516861.0,"period":"2024-12-31"},{"cusip":"69608A108","ticker":"PLTR","issuer_name":"Palantir Technologies A","sector":"AI & Data Infrastructure","action":"INCREASED","prev_shares":7171888.0,"curr_shares":7530482.0,"prev_value":5072638.0,"curr_value":671228.0,"shares_chg_pct":5.0,"value_chg":-4401410.0,"period":"2024-12-31"}]},"10":{"id":10,"cik":"0001061219","name":"Baupost Group","total_value":13129966.0,"latest_period":"2024-12-31","sector_breakdown":[{"sector":"Cloud & SaaS","value":6145006.0},{"sector":"Technology","value":2695278.0},{"sector":"Consumer Discretionary","value":1662158.0},{"sector":"Healthcare & Biotech","value":1567844.0},{"sector":"Semiconductors","value":588027.0},{"sector":"AI & Data Infrastructure","value":471653.0}],"changes":[{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":4673246.0,"curr_shares":5140571.0,"prev_value":496677.0,"curr_value":2831837.0,"shares_chg_pct":10.0,"value_chg":2335160.0,"period":"2024-12-31"},{"cusip":"81762P102","ticker":"SNOW","issuer_name":"Snowflake Inc","sector":"Cloud & SaaS","action":"INCREASED","prev_shares":12262795.0,"curr_shares":16554773.0,"prev_value":2145788.0,"curr_value":3313169.0,"shares_chg_pct":35.0,"value_chg":1167381.0,"period":"2024-12-31"},{"cusip":"594918104","ticker":"MSFT","issuer_name":"Microsoft Corp","sector":"Technology","action":"INCREASED","prev_shares":1556752.0,"curr_shares":2101615.0,"prev_value":795716.0,"curr_value":1676977.0,"shares_chg_pct":35.0,"value_chg":881261.0,"period":"2024-12-31"},{"cusip":"02079K305","ticker":"GOOGL","issuer_name":"Alphabet Inc","sector":"Technology","action":"INCREASED","prev_shares":1538222.0,"curr_shares":2076600.0,"prev_value":364880.0,"curr_value":922575.0,"shares_chg_pct":35.0,"value_chg":557695.0,"period":"2024-12-31"},{"cusip":"879585208","ticker":"TSM","issuer_name":"Taiwan Semiconductor","sector":"Semiconductors","action":"DECREASED","prev_shares":828249.0,"curr_shares":745424.0,"prev_value":63029.0,"curr_value":588027.0,"shares_chg_pct":-10.0,"value_chg":524998.0,"period":"2024-12-31"},{"cusip":"74762E102","ticker":"PLTR","issuer_name":"Palantir Technologies","sector":"AI & Data Infrastructure","action":"DECREASED","prev_shares":1347084.0,"curr_shares":1212376.0,"prev_value":110146.0,"curr_value":471653.0,"shares_chg_pct":-10.0,"value_chg":361507.0,"period":"2024-12-31"},{"cusip":"002824100","ticker":"ABBV","issuer_name":"AbbVie Inc","sector":"Healthcare & Biotech","action":"DECREASED","prev_shares":2368663.0,"curr_shares":2250230.0,"prev_value":1626092.0,"curr_value":1452011.0,"shares_chg_pct":-5.0,"value_chg":-174081.0,"period":"2024-12-31"},{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","sector":"Healthcare & Biotech","action":"INCREASED","prev_shares":687435.0,"curr_shares":1099896.0,"prev_value":291667.0,"curr_value":115833.0,"shares_chg_pct":60.0,"value_chg":-175834.0,"period":"2024-12-31"},{"cusip":"037833100","ticker":"AAPL","issuer_name":"Apple Inc","sector":"Technology","action":"DECREASED","prev_shares":1070998.0,"curr_shares":963898.0,"prev_value":478838.0,"curr_value":95726.0,"shares_chg_pct":-10.0,"value_chg":-383112.0,"period":"2024-12-31"},{"cusip":"30303M102","ticker":"META","issuer_name":"Meta Platforms","sector":"Technology","action":"SOLD_OUT","prev_shares":1603556.0,"curr_shares":0.0,"prev_value":926901.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-926901.0,"period":"2024-12-31"},{"cusip":"98980G102","ticker":"ZS","issuer_name":"Zscaler Inc","sector":"Cybersecurity","action":"SOLD_OUT","prev_shares":4741996.0,"curr_shares":0.0,"prev_value":1815969.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-1815969.0,"period":"2024-12-31"},{"cusip":"369604103","ticker":"GE","issuer_name":"GE Aerospace","sector":"Industrials","action":"SOLD_OUT","prev_shares":6650349.0,"curr_shares":0.0,"prev_value":2891668.0,"curr_value":0.0,"shares_chg_pct":-100.0,"value_chg":-2891668.0,"period":"2024-12-31"}]}},"sectors_detail":{"Consumer Staples":[{"cusip":"191216100","ticker":"KO","issuer_name":"Coca-Cola Co","funds_buying":2,"funds_selling":0,"total_value_chg":-946892.0}],"Energy":[{"cusip":"166764100","ticker":"CVX","issuer_name":"Chevron Corp","funds_buying":1,"funds_selling":0,"total_value_chg":3663720.0}],"Financials":[{"cusip":"461202103","ticker":"JPM","issuer_name":"JPMorgan Chase","funds_buying":3,"funds_selling":0,"total_value_chg":-1433384.0},{"cusip":"57636Q104","ticker":"MA","issuer_name":"Mastercard Inc","funds_buying":3,"funds_selling":0,"total_value_chg":-3614133.0},{"cusip":"084670702","ticker":"BRK.B","issuer_name":"Berkshire Hathaway B","funds_buying":2,"funds_selling":0,"total_value_chg":-1981912.0},{"cusip":"92826C839","ticker":"V","issuer_name":"Visa Inc","funds_buying":1,"funds_selling":0,"total_value_chg":1631494.0}],"Cybersecurity":[{"cusip":"98980G102","ticker":"ZS","issuer_name":"Zscaler Inc","funds_buying":2,"funds_selling":0,"total_value_chg":-2360476.0},{"cusip":"594918104","ticker":"PANW","issuer_name":"Palo Alto Networks","funds_buying":1,"funds_selling":0,"total_value_chg":1597493.0}],"Cloud & SaaS":[{"cusip":"126650100","ticker":"CRM","issuer_name":"Salesforce Inc","funds_buying":5,"funds_selling":2,"total_value_chg":3842814.0},{"cusip":"81762P102","ticker":"SNOW","issuer_name":"Snowflake Inc","funds_buying":3,"funds_selling":1,"total_value_chg":1977453.0},{"cusip":"46090E103","ticker":"NOW","issuer_name":"ServiceNow Inc","funds_buying":2,"funds_selling":0,"total_value_chg":-1777317.0}],"Industrials":[{"cusip":"097023105","ticker":"BA","issuer_name":"Boeing Co","funds_buying":2,"funds_selling":1,"total_value_chg":-864783.0},{"cusip":"369604103","ticker":"GE","issuer_name":"GE Aerospace","funds_buying":2,"funds_selling":0,"total_value_chg":-1451630.0}],"Technology":[{"cusip":"594918104","ticker":"MSFT","issuer_name":"Microsoft Corp","funds_buying":4,"funds_selling":0,"total_value_chg":5223075.0},{"cusip":"30303M102","ticker":"META","issuer_name":"Meta Platforms","funds_buying":3,"funds_selling":0,"total_value_chg":1597970.0},{"cusip":"02079K305","ticker":"GOOGL","issuer_name":"Alphabet Inc","funds_buying":1,"funds_selling":2,"total_value_chg":-117413.0},{"cusip":"023135106","ticker":"AMZN","issuer_name":"Amazon.com Inc","funds_buying":1,"funds_selling":0,"total_value_chg":-282694.0},{"cusip":"037833100","ticker":"AAPL","issuer_name":"Apple Inc","funds_buying":1,"funds_selling":1,"total_value_chg":1193892.0}],"Healthcare & Biotech":[{"cusip":"716943103","ticker":"PFE","issuer_name":"Pfizer Inc","funds_buying":5,"funds_selling":1,"total_value_chg":-2122174.0},{"cusip":"91324P102","ticker":"UNH","issuer_name":"UnitedHealth Group","funds_buying":2,"funds_selling":1,"total_value_chg":-4135019.0},{"cusip":"58933Y105","ticker":"MRK","issuer_name":"Merck & Co","funds_buying":1,"funds_selling":1,"total_value_chg":1359356.0},{"cusip":"002824100","ticker":"ABBV","issuer_name":"AbbVie Inc","funds_buying":0,"funds_selling":3,"total_value_chg":-1100781.0}],"Semiconductors":[{"cusip":"879585208","ticker":"TSM","issuer_name":"Taiwan Semiconductor","funds_buying":2,"funds_selling":1,"total_value_chg":-1199625.0},{"cusip":"45866F104","ticker":"INTC","issuer_name":"Intel Corp","funds_buying":1,"funds_selling":0,"total_value_chg":1024686.0},{"cusip":"67066G104","ticker":"NVDA","issuer_name":"NVIDIA Corp","funds_buying":1,"funds_selling":2,"total_value_chg":3976436.0}],"AI & Data Infrastructure":[{"cusip":"69608A108","ticker":"PLTR","issuer_name":"Palantir Technologies A","funds_buying":2,"funds_selling":2,"total_value_chg":-6197025.0},{"cusip":"74762E102","ticker":"PLTR","issuer_name":"Palantir Technologies","funds_buying":1,"funds_selling":2,"total_value_chg":-1167677.0}],"Consumer Discretionary":[{"cusip":"828806109","ticker":"SBUX","issuer_name":"Starbucks Corp","funds_buying":1,"funds_selling":0,"total_value_chg":-3516861.0},{"cusip":"855244109","ticker":"TSLA","issuer_name":"Tesla Inc","funds_buying":0,"funds_selling":2,"total_value_chg":-191463.0}]}};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function fv(v){if(v==null||isNaN(v))return"—";const a=Math.abs(v);if(a>=1e9)return(v/1e9).toFixed(1)+"B";if(a>=1e6)return(v/1e6).toFixed(1)+"M";if(a>=1e3)return(v/1e3).toFixed(1)+"K";return Number(v).toFixed(0)}
+function fs(v){if(!v)return"—";if(v>=1e9)return(v/1e9).toFixed(2)+"B";if(v>=1e6)return(v/1e6).toFixed(2)+"M";if(v>=1e3)return(v/1e3).toFixed(1)+"K";return Number(v).toFixed(0)}
+const badgeCls={NEW:"badge-new",INCREASED:"badge-increased",DECREASED:"badge-decreased",SOLD_OUT:"badge-sold"};
+const actLabel={NEW:"New",INCREASED:"↑ Incr",DECREASED:"↓ Decr",SOLD_OUT:"Sold Out"};
+const palette=["#6366f1","#8b5cf6","#ec4899","#f43f5e","#f97316","#eab308","#22c55e","#14b8a6","#38bdf8","#a3e635"];
+
+// ── Tab switch ─────────────────────────────────────────────────────────────
+function switchTab(name,btn){
+  ["dashboard","funds","themes"].forEach(t=>{
+    $("tab-"+t).classList.toggle("hidden",t!==name);
+  });
+  document.querySelectorAll("[onclick^=\'switchTab\']").forEach(b=>{
+    b.classList.remove("tab-active"); b.classList.add("tab");
+  });
+  btn.classList.add("tab-active");
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+function initDashboard(){
+  const {themes,top_buys,funds,period}=DATA.dashboard;
+  const topT=themes[0]||{};
+  const kpis=[
+    {label:"Tracked Funds",value:funds.length,sub:"institutional investors"},
+    {label:"Top Theme",value:topT.sector||"—",sub:`conviction ${((topT.conviction_score||0)*100).toFixed(0)}%`},
+    {label:"Sectors Tracked",value:themes.length,sub:"GICS-mapped categories"},
+    {label:"Net Δ All Sectors",value:fv(themes.reduce((s,t)=>s+(t.total_value_chg||0),0)),sub:"USD thousands"},
+  ];
+  $("kpi-row").innerHTML=kpis.map(k=>`
+    <div class="glass rounded-xl p-5">
+      <div class="text-xs text-slate-500 mb-1">${k.label}</div>
+      <div class="text-2xl font-bold text-white mb-0.5">${k.value}</div>
+      <div class="text-xs text-slate-500">${k.sub}</div>
+    </div>`).join("");
+
+  // Top buys
+  $("buys-body").innerHTML=top_buys.slice(0,15).map((b,i)=>`
+    <tr class="border-b border-white/5 hover:bg-white/3 transition-colors">
+      <td class="py-2.5 pr-4 text-slate-500 text-xs">${i+1}</td>
+      <td class="py-2.5 pr-4">
+        <div class="font-medium text-white">${esc(b.ticker||b.issuer_name)}</div>
+        <div class="text-xs text-slate-500">${esc(b.issuer_name||"")}</div>
+      </td>
+      <td class="py-2.5 pr-4"><span class="chip">${esc(b.sector)}</span></td>
+      <td class="py-2.5 pr-4 text-right font-semibold text-brand-400">${b.fund_count}</td>
+      <td class="py-2.5 text-right font-mono text-xs ${b.total_value_chg>=0?"text-emerald-400":"text-rose-400"}">
+        ${b.total_value_chg>=0?"+":""}${fv(b.total_value_chg)}</td>
+    </tr>`).join("");
+
+  // Conviction chart
+  const top12=themes.slice(0,12);
+  new Chart($("convChart").getContext("2d"),{
+    type:"bar",
+    data:{labels:top12.map(t=>t.sector),datasets:[{
+      data:top12.map(t=>+(t.conviction_score*100).toFixed(1)),
+      backgroundColor:top12.map(t=>t.conviction_score>=0?"rgba(99,102,241,0.8)":"rgba(244,63,94,0.75)"),
+      borderRadius:4,borderSkipped:false}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.raw}%`}}},
+      scales:{x:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10}},
+        title:{display:true,text:"Conviction %",color:"#64748b",font:{size:10}}},
+        y:{grid:{display:false},ticks:{color:"#94a3b8",font:{size:10}}}}}});
+
+  // Buying chart
+  const top10=themes.slice(0,10);
+  new Chart($("buyChart").getContext("2d"),{
+    type:"bar",
+    data:{labels:top10.map(t=>t.sector),datasets:[
+      {label:"Buying",data:top10.map(t=>t.funds_buying),backgroundColor:"rgba(99,102,241,0.75)",borderRadius:3},
+      {label:"Selling",data:top10.map(t=>t.funds_selling),backgroundColor:"rgba(244,63,94,0.65)",borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:"#94a3b8",font:{size:10}}}},
+      scales:{x:{grid:{display:false},ticks:{color:"#64748b",font:{size:9},maxRotation:35}},
+        y:{grid:{color:"rgba(255,255,255,0.05)"},ticks:{color:"#64748b",font:{size:10}},
+          title:{display:true,text:"# Funds",color:"#64748b",font:{size:10}}}}}});
+}
+
+// ── Fund Explorer ──────────────────────────────────────────────────────────
+let activeFundId=null, allChanges=[], fundDonutChart=null;
+function initFunds(){
+  const funds=DATA.dashboard.funds;
+  $("fund-list").innerHTML=funds.map(f=>`
+    <button class="fund-btn w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
+      data-id="${f.id}" onclick="selectFund(${f.id},this)">
+      <div class="text-sm font-medium text-slate-200">${esc(f.name)}</div>
+      <div class="text-xs text-slate-500 mt-0.5">${DATA.funds_detail[f.id]?.latest_period||"—"}</div>
+    </button>`).join("");
+}
+
+function selectFund(id,btn){
+  document.querySelectorAll(".fund-btn").forEach(b=>b.classList.remove("bg-brand-900/40","border","border-brand-700/40"));
+  btn.classList.add("bg-brand-900/40","border","border-brand-700/40");
+  const fd=DATA.funds_detail[id];
+  $("fund-placeholder").classList.add("hidden");
+  $("fund-panel").classList.remove("hidden");
+  $("fp-name").textContent=fd.name;
+  $("fp-meta").textContent=`CIK ${fd.cik} · Latest: ${fd.latest_period||"—"}`;
+  $("fp-value").textContent=fv(fd.total_value);
+
+  if(fundDonutChart){fundDonutChart.destroy();fundDonutChart=null;}
+  const top=fd.sector_breakdown.slice(0,8);
+  fundDonutChart=new Chart($("fundDonut").getContext("2d"),{
+    type:"doughnut",
+    data:{labels:top.map(b=>b.sector),datasets:[{data:top.map(b=>b.value),backgroundColor:palette,borderWidth:0,hoverOffset:5}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:"65%",
+      plugins:{legend:{position:"right",labels:{color:"#94a3b8",font:{size:9},boxWidth:9,padding:6}},
+        tooltip:{callbacks:{label:c=>` $${fv(c.raw)}K`}}}}});
+
+  allChanges=fd.changes||[];
+  filterAct("all",$(".af.tab-active")||document.querySelector(".af"));
+}
+
+function filterAct(f,btn){
+  document.querySelectorAll(".af").forEach(b=>{b.classList.remove("tab-active");b.classList.add("tab")});
+  if(btn){btn.classList.add("tab-active");}
+  const rows=f==="all"?allChanges:allChanges.filter(c=>c.action===f);
+  $("fp-changes").innerHTML=rows.length?rows.map(c=>`
+    <tr class="border-b border-white/5 hover:bg-white/3 transition-colors">
+      <td class="py-2 pr-3"><div class="font-medium text-white">${esc(c.ticker||c.issuer_name)}</div></td>
+      <td class="py-2 pr-3"><span class="badge ${badgeCls[c.action]||""}">${actLabel[c.action]||c.action}</span></td>
+      <td class="py-2 pr-3 text-slate-400">${esc(c.sector)}</td>
+      <td class="py-2 pr-3 text-right text-slate-400">${fs(c.prev_shares)}</td>
+      <td class="py-2 pr-3 text-right text-slate-200">${fs(c.curr_shares)}</td>
+      <td class="py-2 text-right ${(c.value_chg||0)>=0?"text-emerald-400":"text-rose-400"}">
+        ${(c.value_chg||0)>=0?"+":""}${fv(c.value_chg)}</td>
+    </tr>`).join("")
+    :"<tr><td colspan=\"6\" class=\"py-6 text-center text-slate-500\">No rows for this filter</td></tr>";
+}
+
+// ── Theme Explorer ─────────────────────────────────────────────────────────
+function initThemes(){
+  const themes=DATA.dashboard.themes;
+  $("sector-list").innerHTML=themes.map(t=>`
+    <div class="sector-btn cursor-pointer hover:bg-white/5 rounded-lg px-3 py-2.5 transition-colors"
+      onclick="selectSector(\'${t.sector.replace(/'/g,"\\'")}\',this)">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-medium text-slate-200">${esc(t.sector)}</span>
+        <span class="text-xs font-bold ${t.conviction_score>=0?"text-brand-400":"text-rose-400"}">
+          ${t.conviction_score>=0?"+":""}${(t.conviction_score*100).toFixed(0)}%</span>
+      </div>
+      <div class="conviction-bar">
+        <div class="conviction-fill ${t.conviction_score>=0?"bg-brand-500":"bg-rose-500"}"
+          style="width:${Math.min(Math.abs(t.conviction_score)*100,100)}%"></div>
+      </div>
+      <div class="flex justify-between mt-1">
+        <span class="text-xs text-emerald-500">${t.funds_buying} buying</span>
+        <span class="text-xs text-rose-500">${t.funds_selling} selling</span>
+      </div>
+    </div>`).join("");
+}
+
+function selectSector(sector,el){
+  document.querySelectorAll(".sector-btn").forEach(b=>b.classList.remove("bg-brand-900/30","border","border-brand-700/30"));
+  el.classList.add("bg-brand-900/30","border","border-brand-700/30");
+  const stocks=DATA.sectors_detail[sector]||[];
+  const snap=(DATA.dashboard.themes||[]).find(t=>t.sector===sector)||{};
+  $("sector-placeholder").classList.add("hidden");
+  $("sector-panel").classList.remove("hidden");
+  $("sp-name").textContent=sector;
+  $("sp-meta").textContent=`${stocks.length} securities · Q4 2024`;
+  const sc=snap.conviction_score||0;
+  $("sp-score").innerHTML=`<div class="text-xl font-bold ${sc>=0?"text-brand-400":"text-rose-400"}">${sc>=0?"+":""}${(sc*100).toFixed(0)}%</div><div class="text-xs text-slate-500">conviction</div>`;
+  $("sp-stocks").innerHTML=stocks.length?stocks.map(s=>`
+    <tr class="border-b border-white/5 hover:bg-white/3 transition-colors">
+      <td class="py-2.5 pr-4">
+        <div class="font-medium text-white">${esc(s.ticker||s.issuer_name)}</div>
+        <div class="text-xs text-slate-500">${esc(s.issuer_name||"")}</div>
+      </td>
+      <td class="py-2.5 pr-4 text-center font-semibold text-emerald-400">${s.funds_buying}</td>
+      <td class="py-2.5 pr-4 text-center font-semibold text-rose-400">${s.funds_selling}</td>
+      <td class="py-2.5 text-right font-mono text-xs ${s.total_value_chg>=0?"text-emerald-400":"text-rose-400"}">
+        ${s.total_value_chg>=0?"+":""}${fv(s.total_value_chg)}</td>
+    </tr>`).join("")
+    :"<tr><td colspan=\"4\" class=\"py-6 text-center text-slate-500\">No data</td></tr>";
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+initDashboard();
+initFunds();
+initThemes();
+</script>
+</body>
+</html>
